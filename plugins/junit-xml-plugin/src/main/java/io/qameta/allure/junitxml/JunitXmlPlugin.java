@@ -164,8 +164,9 @@ public class JunitXmlPlugin implements Reader {
                 .setName(name)
                 .setHostname(hostname)
                 .setTimestamp(getUnix(timestamp));
+        final Optional<List<Parameter>> testSuiteParameters = getParameters(testSuiteElement);
         testSuiteElement.get(TEST_CASE_ELEMENT_NAME)
-                .forEach(element -> parseTestCase(info, element,
+                .forEach(element -> parseTestCase(info, testSuiteParameters, element,
                                                   resultsDirectory, parsedFile, context, visitor));
     }
 
@@ -177,14 +178,23 @@ public class JunitXmlPlugin implements Reader {
                 .orElse(null);
     }
 
-    private void parseTestCase(final TestSuiteInfo info, final XmlElement testCaseElement, final Path resultsDirectory,
-                               final Path parsedFile, final RandomUidContext context, final ResultsVisitor visitor) {
+    private void parseTestCase(final TestSuiteInfo info, final Optional<List<Parameter>> suiteParameters,
+                               final XmlElement testCaseElement, final Path resultsDirectory,
+                               final Path parsedFile, final RandomUidContext context,
+                               final ResultsVisitor visitor) {
         final String className = testCaseElement.getAttribute(CLASS_NAME_ATTRIBUTE_NAME);
         final Status status = getStatus(testCaseElement);
         final TestResult result = createStatuslessTestResult(info, testCaseElement, parsedFile, context);
         result.setStatus(status);
         result.setFlaky(isFlaky(testCaseElement));
         setStatusDetails(result, testCaseElement);
+        suiteParameters.ifPresent(parameters -> {
+            final StageResult suiteResult = new StageResult();
+            suiteResult.setName("Test Suite");
+            suiteResult.setParameters(parameters);
+            result.setBeforeStages(List.of(suiteResult));
+        });
+
         final StageResult stageResult = new StageResult();
         final List<Step> steps = Stream.of(
                         getLogMessage(testCaseElement, SYSTEM_OUTPUT_ELEMENT_NAME)
@@ -252,7 +262,7 @@ public class JunitXmlPlugin implements Reader {
         result.setName(isNull(name) ? "Unknown test case" : name);
         result.setTime(getTime(info.getTimestamp(), testCaseElement, parsedFile));
         result.addLabelIfNotExists(RESULT_FORMAT, JUNIT_RESULTS_FORMAT);
-        setParameters(result, testCaseElement);
+        getParameters(testCaseElement).ifPresent(result::setParameters);
 
         suiteName.ifPresent(s -> result.addLabelIfNotExists(LabelName.SUITE, s));
         if (nonNull(info.getHostname())) {
@@ -299,16 +309,14 @@ public class JunitXmlPlugin implements Reader {
                 });
     }
 
-    private void setParameters(final TestResult result, final XmlElement testCaseElement) {
-        testCaseElement
+    private Optional<List<Parameter>> getParameters(final XmlElement element) {
+        return element
                 .getFirst(PROPERTIES_ELEMENT_NAME)
                 .map(properties -> properties.get(PROPERTY_ELEMENT_NAME))
                 .map(Collection::stream)
                 .map(stream -> stream.map(this::getParameter))
-                .map(stream -> stream.collect(Collectors.toList()))
-                .ifPresent(result::setParameters);
+                .map(stream -> stream.collect(Collectors.toList()));
     }
-
     private Parameter getParameter(final XmlElement propertyElement) {
         final String name = propertyElement.getAttribute(NAME_ATTRIBUTE_NAME);
         final String value = propertyElement.getAttribute(VALUE_ATTRIBUTE_NAME);
