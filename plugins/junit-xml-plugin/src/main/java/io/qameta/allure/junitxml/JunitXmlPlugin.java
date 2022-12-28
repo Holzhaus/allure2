@@ -95,6 +95,7 @@ public class JunitXmlPlugin implements Reader {
     private static final String STATUS_ATTRIBUTE_NAME = "status";
     private static final String SKIPPED_ATTRIBUTE_VALUE = "notrun";
     private static final String SYSTEM_OUTPUT_ELEMENT_NAME = "system-out";
+    private static final String SYSTEM_ERROR_ELEMENT_NAME = "system-err";
     private static final String PROPERTIES_ELEMENT_NAME = "properties";
     private static final String PROPERTY_ELEMENT_NAME = "property";
 
@@ -185,14 +186,21 @@ public class JunitXmlPlugin implements Reader {
         result.setFlaky(isFlaky(testCaseElement));
         setStatusDetails(result, testCaseElement);
         final StageResult stageResult = new StageResult();
-        getLogMessage(testCaseElement).ifPresent(logMessage -> {
-            final List<String> lines = splitLines(logMessage);
-            final List<Step> steps = lines
-                    .stream()
-                    .map(line -> new Step().setName(line))
-                    .collect(Collectors.toList());
-            stageResult.setSteps(steps);
-        });
+        final List<Step> steps = Stream.of(
+                        getLogMessage(testCaseElement, SYSTEM_OUTPUT_ELEMENT_NAME)
+                                .map(messages -> Map.entry("Standard Output", messages)),
+                        getLogMessage(testCaseElement, SYSTEM_ERROR_ELEMENT_NAME)
+                                .map(messages -> Map.entry("Standard Error", messages))
+                )
+                .flatMap(Optional::stream)
+                .map(entry -> Map.entry(entry.getKey(), splitLines(entry.getValue())
+                            .map(line -> new Step().setName(line))
+                            .collect(Collectors.toList())))
+                .filter(entry -> !entry.getValue().isEmpty())
+                .map(entry -> new Step().setName(entry.getKey()).setSteps(entry.getValue()))
+                .collect(Collectors.toList());
+        stageResult.setSteps(steps);
+
         getLogFile(resultsDirectory, className)
                 .filter(Files::exists)
                 .map(visitor::visitAttachmentFile)
@@ -211,12 +219,12 @@ public class JunitXmlPlugin implements Reader {
         }));
     }
 
-    private List<String> splitLines(final String str) {
-        return Arrays.asList(str.split("\\r?\\n"));
+    private Stream<String> splitLines(final String str) {
+        return Arrays.stream(str.split("\\r?\\n"));
     }
 
-    private Optional<String> getLogMessage(final XmlElement testCaseElement) {
-        return testCaseElement.getFirst(SYSTEM_OUTPUT_ELEMENT_NAME).map(XmlElement::getValue);
+    private Optional<String> getLogMessage(final XmlElement testCaseElement, final String elementName) {
+        return testCaseElement.getFirst(elementName).map(XmlElement::getValue);
     }
 
     private Optional<Path> getLogFile(final Path resultsDirectory, final String className) {
