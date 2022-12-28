@@ -23,6 +23,7 @@ import io.qameta.allure.datetime.CompositeDateTimeParser;
 import io.qameta.allure.datetime.DateTimeParser;
 import io.qameta.allure.datetime.LocalDateTimeParser;
 import io.qameta.allure.datetime.ZonedDateTimeParser;
+import io.qameta.allure.entity.Attachment;
 import io.qameta.allure.entity.LabelName;
 import io.qameta.allure.entity.Parameter;
 import io.qameta.allure.entity.StageResult;
@@ -59,7 +60,6 @@ import java.util.stream.Stream;
 
 import static io.qameta.allure.entity.LabelName.RESULT_FORMAT;
 import static java.nio.file.Files.newDirectoryStream;
-import static java.util.Collections.singletonList;
 import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 
@@ -211,12 +211,27 @@ public class JunitXmlPlugin implements Reader {
                 .collect(Collectors.toList());
         stageResult.setSteps(steps);
 
-        getLogFile(resultsDirectory, className)
-                .filter(Files::exists)
-                .map(visitor::visitAttachmentFile)
-                .map(attachment1 -> attachment1.setName("System out"))
-                .ifPresent(attachment -> stageResult.setAttachments(singletonList(attachment)));
+        final List<Attachment> attachments = Stream.concat(
+                getLogFile(resultsDirectory, className)
+                        .filter(Files::exists)
+                        .map(visitor::visitAttachmentFile)
+                        .map(attachment1 -> attachment1.setName("System out"))
+                        .stream(),
+                result.getParameters()
+                        .stream()
+                        .filter(parameter -> parameter.getName().startsWith("attachments."))
+                        .flatMap(parameter -> Optional.of(parameter.getValue())
+                                .map(resultsDirectory::resolve)
+                                .filter(Files::exists)
+                                .map(visitor::visitAttachmentFile)
+                                .map(attachment -> attachment.setName(parameter.getName().substring(12)))
+                                .stream())
+                )
+                .collect(Collectors.toList());
+
+        stageResult.setAttachments(attachments);
         result.setTestStage(stageResult);
+
         visitor.visitTestResult(result);
 
         RETRIES.forEach((elementName, retryStatus) -> testCaseElement.get(elementName).forEach(failure -> {
