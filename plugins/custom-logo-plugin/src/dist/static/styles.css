@@ -1,4 +1,19 @@
-.side-nav__brand {
-  background: url('custom-logo.svg') no-repeat left center !important;
-  margin-left: 10px;
+.side-nav:not(.side-nav_collapsed) {
+    width: 290px;
+}
+
+.side-nav .side-nav__brand {
+  background-image: url('logo_text_inverted.svg');
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: contain;
+  margin-left: 0;
+}
+
+.side-nav.side-nav_collapsed .side-nav__brand {
+  background-image: url('icon_inverted.svg');
+}
+
+.side-nav__brand-text {
+    visibility: hidden;
 }
